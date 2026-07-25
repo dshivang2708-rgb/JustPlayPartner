@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { ScreenScaffold } from '../components/ScreenScaffold';
 import { ChipRow } from '../components/ChipRow';
 import { VenueCard } from '../components/VenueCard';
 import { EventCard } from '../components/EventCard';
 import { Button } from '../components/Button';
+import { AddVenueModal } from '../components/AddVenueModal';
+import { AddEventModal } from '../components/AddEventModal';
 import { color, font, radius, spacing } from '../theme/tokens';
-import { events, EventStatus } from '../data/homeData';
 import { fetchMyVenues, VenueRecord } from '../services/venuesService';
+import { fetchMyEvents, EventRecord, EventStatus } from '../services/eventsService';
 
 const EVENT_FILTERS: { key: EventStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -18,9 +20,16 @@ const EVENT_FILTERS: { key: EventStatus | 'all'; label: string }[] = [
 
 export function HomeScreen() {
   const [eventFilter, setEventFilter] = useState<EventStatus | 'all'>('all');
+
   const [venues, setVenues] = useState<VenueRecord[]>([]);
   const [loadingVenues, setLoadingVenues] = useState(true);
   const [venuesError, setVenuesError] = useState<string | null>(null);
+  const [addVenueVisible, setAddVenueVisible] = useState(false);
+
+  const [events, setEvents] = useState<EventRecord[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [addEventVisible, setAddEventVisible] = useState(false);
 
   const loadVenues = useCallback(async () => {
     setLoadingVenues(true);
@@ -35,23 +44,34 @@ export function HomeScreen() {
     }
   }, []);
 
+  const loadEvents = useCallback(async () => {
+    setLoadingEvents(true);
+    setEventsError(null);
+    try {
+      const data = await fetchMyEvents();
+      setEvents(data);
+    } catch (e) {
+      setEventsError(e instanceof Error ? e.message : 'Could not load events.');
+    } finally {
+      setLoadingEvents(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadVenues();
-  }, [loadVenues]);
+    loadEvents();
+  }, [loadVenues, loadEvents]);
 
   const filteredEvents = useMemo(
     () => (eventFilter === 'all' ? events : events.filter((e) => e.status === eventFilter)),
-    [eventFilter]
+    [eventFilter, events]
   );
 
   return (
     <ScreenScaffold title="Home" subtitle={`${venues.length} venues · ${events.length} events`}>
       {/* Venues -- live from Supabase */}
       <View>
-        <SectionHeader
-          title="Venues"
-          onAddPress={() => Alert.alert('Add venue', 'This would open the venue onboarding flow.')}
-        />
+        <SectionHeader title="Venues" onAddPress={() => setAddVenueVisible(true)} />
 
         {loadingVenues ? (
           <ActivityIndicator color={color.gold} style={{ marginVertical: spacing.md }} />
@@ -81,22 +101,38 @@ export function HomeScreen() {
         )}
       </View>
 
-      {/* Events -- still mock data; wire an eventsService the same way once
-          the events table/schema is finalized. */}
+      {/* Events -- live from Supabase */}
       <View>
-        <SectionHeader
-          title="Events"
-          onAddPress={() => Alert.alert('Add event', 'This would open the event creation flow.')}
-        />
+        <SectionHeader title="Events" onAddPress={() => setAddEventVisible(true)} />
         <ChipRow chips={EVENT_FILTERS} selectedKey={eventFilter} onSelect={(k) => setEventFilter(k as EventStatus | 'all')} />
         <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
-          {filteredEvents.length === 0 ? (
+          {loadingEvents ? (
+            <ActivityIndicator color={color.gold} style={{ marginVertical: spacing.md }} />
+          ) : eventsError ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{eventsError}</Text>
+              <Button label="Retry" variant="secondary" size="sm" onPress={loadEvents} style={{ marginTop: spacing.sm }} />
+            </View>
+          ) : filteredEvents.length === 0 ? (
             <Text style={styles.emptyText}>No {eventFilter === 'all' ? '' : eventFilter} events to show.</Text>
           ) : (
             filteredEvents.map((e) => <EventCard key={e.id} event={e} />)
           )}
         </View>
       </View>
+
+      <AddVenueModal
+        visible={addVenueVisible}
+        onClose={() => setAddVenueVisible(false)}
+        onCreated={(venue) => setVenues((prev) => [venue, ...prev])}
+      />
+
+      <AddEventModal
+        visible={addEventVisible}
+        venues={venues}
+        onClose={() => setAddEventVisible(false)}
+        onCreated={(event) => setEvents((prev) => [event, ...prev])}
+      />
     </ScreenScaffold>
   );
 }

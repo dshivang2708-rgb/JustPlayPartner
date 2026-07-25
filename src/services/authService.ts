@@ -15,36 +15,29 @@ export type SignInInput = {
 };
 
 /**
- * Creates the auth user, then creates the matching row in `profiles` with
- * role='partner'. If the profile insert fails after the auth user is
- * created, we surface a clear error rather than leaving a silently
- * incomplete account -- in a real production build you'd want this pair
- * done inside a Postgres function (RPC) so it's atomic, rather than two
- * separate client calls.
+ * Creates the auth user. The matching `profiles` row (role='partner') is
+ * created server-side by a Postgres trigger (see
+ * supabase/schema.sql -> handle_new_user()) that fires on auth.users
+ * insert and reads these fields back out of raw_user_meta_data. This
+ * avoids a client-side insert racing against RLS when email confirmation
+ * is enabled and no session exists yet right after signUp().
  */
 export async function signUpPartner(input: SignUpInput) {
   const { data, error } = await supabase.auth.signUp({
     email: input.email,
     password: input.password,
+    options: {
+      data: {
+        full_name: input.fullName,
+        organisation_name: input.organisationName,
+        phone: input.phone,
+        location: input.location,
+      },
+    },
   });
 
   if (error) throw error;
   if (!data.user) throw new Error('Sign up did not return a user. Please try again.');
-
-  const { error: profileError } = await supabase.from('profiles').insert({
-    id: data.user.id,
-    role: 'partner',
-    full_name: input.fullName,
-    organisation_name: input.organisationName,
-    phone: input.phone,
-    location: input.location,
-  });
-
-  if (profileError) {
-    throw new Error(
-      `Account created, but your profile details couldn't be saved (${profileError.message}). Please contact support.`
-    );
-  }
 
   return data;
 }
