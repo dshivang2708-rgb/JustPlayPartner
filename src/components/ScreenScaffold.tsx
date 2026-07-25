@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControlProps } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { color, font, radius, spacing } from '../theme/tokens';
 
@@ -12,6 +12,8 @@ type Props = {
   /** Compact = shorter chrome band (dashboard, list screens). Tall = onboarding-style. */
   variant?: 'compact' | 'tall';
   rightAction?: React.ReactNode;
+  /** Pass a <RefreshControl ... /> element to enable pull-to-refresh on the content sheet. */
+  refreshControl?: React.ReactElement<RefreshControlProps>;
 };
 
 /**
@@ -26,6 +28,7 @@ export function ScreenScaffold({
   children,
   variant = 'compact',
   rightAction,
+  refreshControl,
 }: Props) {
   return (
     <View style={styles.root}>
@@ -46,6 +49,7 @@ export function ScreenScaffold({
         style={styles.sheet}
         contentContainerStyle={styles.sheetContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl}
       >
         {children}
       </ScrollView>

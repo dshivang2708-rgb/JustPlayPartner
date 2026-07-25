@@ -1,112 +1,50 @@
-import React, { useRef, useState } from 'react';
-import { View, Text, PanResponder, StyleSheet, LayoutChangeEvent } from 'react-native';
-import { color, font, spacing } from '../theme/tokens';
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { color, font, radius, spacing } from '../theme/tokens';
+import { PriceChangeEntry } from '../data/pricingData';
 
-type Props = {
-  floor: number;
-  ceiling: number;
-  minValue: number;
-  maxValue: number;
-  onChange: (minValue: number, maxValue: number) => void;
-  step?: number;
-};
-
-const THUMB_SIZE = 22;
-
-export function PriceRangeSlider({ floor, ceiling, minValue, maxValue, onChange, step = 50 }: Props) {
-  const [trackWidth, setTrackWidth] = useState(0);
-  const minValueRef = useRef(minValue);
-  const maxValueRef = useRef(maxValue);
-  minValueRef.current = minValue;
-  maxValueRef.current = maxValue;
-  const trackWidthRef = useRef(trackWidth);
-  trackWidthRef.current = trackWidth;
-
-  const valueToX = (value: number, width: number) => ((value - floor) / (ceiling - floor)) * width;
-  const xToValue = (x: number, width: number) => {
-    const raw = floor + (x / width) * (ceiling - floor);
-    const stepped = Math.round(raw / step) * step;
-    return Math.max(floor, Math.min(ceiling, stepped));
-  };
-
-  const onLayout = (e: LayoutChangeEvent) => setTrackWidth(e.nativeEvent.layout.width);
-
-  const minResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gesture) => {
-        const width = trackWidthRef.current;
-        if (width === 0) return;
-        const startX = valueToX(minValueRef.current, width);
-        const newX = Math.max(0, Math.min(width, startX + gesture.dx));
-        const newValue = xToValue(newX, width);
-        const clamped = Math.min(newValue, maxValueRef.current - step);
-        onChange(Math.max(floor, clamped), maxValueRef.current);
-      },
-    })
-  ).current;
-
-  const maxResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gesture) => {
-        const width = trackWidthRef.current;
-        if (width === 0) return;
-        const startX = valueToX(maxValueRef.current, width);
-        const newX = Math.max(0, Math.min(width, startX + gesture.dx));
-        const newValue = xToValue(newX, width);
-        const clamped = Math.max(newValue, minValueRef.current + step);
-        onChange(minValueRef.current, Math.min(ceiling, clamped));
-      },
-    })
-  ).current;
-
-  const minX = trackWidth > 0 ? valueToX(minValue, trackWidth) : 0;
-  const maxX = trackWidth > 0 ? valueToX(maxValue, trackWidth) : 0;
-
+export function PriceHistoryEntry({ entry, isLast }: { entry: PriceChangeEntry; isLast: boolean }) {
   return (
-    <View>
-      <View style={styles.valueRow}>
-        <Text style={styles.valueLabel}>₹{minValue}</Text>
-        <Text style={styles.valueLabel}>₹{maxValue}</Text>
+    <View style={styles.row}>
+      <View style={styles.railCol}>
+        <View style={styles.dot} />
+        {!isLast && <View style={styles.line} />}
       </View>
-      <View style={styles.track} onLayout={onLayout}>
-        <View style={styles.trackBg} />
-        {trackWidth > 0 && (
-          <>
-            <View style={[styles.trackFill, { left: minX, width: Math.max(0, maxX - minX) }]} />
-            <View {...minResponder.panHandlers} style={[styles.thumb, { left: minX - THUMB_SIZE / 2 }]} />
-            <View {...maxResponder.panHandlers} style={[styles.thumb, { left: maxX - THUMB_SIZE / 2 }]} />
-          </>
-        )}
-      </View>
-      <View style={styles.boundsRow}>
-        <Text style={styles.boundsLabel}>Floor ₹{floor}</Text>
-        <Text style={styles.boundsLabel}>Ceiling ₹{ceiling}</Text>
+      <View style={styles.content}>
+        <View style={styles.headerRow}>
+          <Text style={styles.court}>{entry.courtName}</Text>
+          <Text style={styles.date}>{entry.dateLabel}</Text>
+        </View>
+        <View style={styles.priceRow}>
+          <Text style={styles.priceFrom}>₹{entry.fromPrice}</Text>
+          <Text style={styles.arrow}>→</Text>
+          <Text style={styles.priceTo}>₹{entry.toPrice}</Text>
+          <View style={styles.modeBadge}>
+            <Text style={styles.modeBadgeText}>{entry.triggeredBy}</Text>
+          </View>
+        </View>
+        <Text style={[styles.impact, { color: entry.revenueImpactUp ? color.success : color.danger }]}>
+          {entry.revenueImpactUp ? '▲' : '▼'} {entry.revenueImpactLabel}
+        </Text>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  valueRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.sm },
-  valueLabel: { fontFamily: font.serifSemiBold, fontSize: 16, color: color.textOnLight },
-  track: { height: THUMB_SIZE, justifyContent: 'center' },
-  trackBg: { height: 4, borderRadius: 2, backgroundColor: color.border },
-  trackFill: { position: 'absolute', height: 4, borderRadius: 2, backgroundColor: color.gold },
-  thumb: {
-    position: 'absolute',
-    width: THUMB_SIZE,
-    height: THUMB_SIZE,
-    borderRadius: THUMB_SIZE / 2,
-    backgroundColor: color.surface,
-    borderWidth: 2,
-    borderColor: color.gold,
-    boxShadow: '0px 2px 3px rgba(0, 0, 0, 0.1)',
-    elevation: 3,
-  },
-  boundsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
-  boundsLabel: { fontFamily: font.sansMedium, fontSize: 11, color: color.textOnLightFaint },
+  row: { flexDirection: 'row' },
+  railCol: { width: 20, alignItems: 'center' },
+  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: color.gold, marginTop: 4 },
+  line: { flex: 1, width: 2, backgroundColor: color.border, marginTop: 2 },
+  content: { flex: 1, paddingBottom: spacing.md },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  court: { fontFamily: font.sansSemiBold, fontSize: 13, color: color.textOnLight },
+  date: { fontFamily: font.sans, fontSize: 11, color: color.textOnLightFaint },
+  priceRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  priceFrom: { fontFamily: font.sans, fontSize: 13, color: color.textOnLightMuted, textDecorationLine: 'line-through' },
+  arrow: { fontFamily: font.sans, fontSize: 13, color: color.textOnLightFaint },
+  priceTo: { fontFamily: font.serifSemiBold, fontSize: 15, color: color.textOnLight },
+  modeBadge: { backgroundColor: color.background, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 4 },
+  modeBadgeText: { fontFamily: font.sansMedium, fontSize: 10, color: color.textOnLightMuted },
+  impact: { fontFamily: font.sansSemiBold, fontSize: 12, marginTop: 4 },
 });
