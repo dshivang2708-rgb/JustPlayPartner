@@ -1,32 +1,74 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { ScreenScaffold } from '../components/ScreenScaffold';
 import { Card } from '../components/Card';
+import { Button } from '../components/Button';
 import { color, font, spacing } from '../theme/tokens';
-import { generatedReports } from '../data/reportsData';
+import { GeneratedReport } from '../data/reportsData';
+import { fetchReportById } from '../services/reportsService';
 
 export function ReportDetailScreen({ route }: { route: any }) {
   const { reportId } = route.params;
-  const report = generatedReports.find((r) => r.id === reportId) ?? generatedReports[0];
+  const [report, setReport] = useState<GeneratedReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetchReportById(reportId);
+      if (!r) {
+        setError('Report not found.');
+      } else {
+        setReport(r);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load this report.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, [reportId]);
+
+  if (loading) {
+    return (
+      <ScreenScaffold title="Report" subtitle="Loading…">
+        <ActivityIndicator color={color.gold} style={{ marginTop: spacing.lg }} />
+      </ScreenScaffold>
+    );
+  }
+
+  if (error || !report) {
+    return (
+      <ScreenScaffold title="Report" subtitle="">
+        <View style={{ alignItems: 'center', paddingVertical: spacing.lg }}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Button label="Retry" variant="secondary" onPress={load} style={{ marginTop: spacing.sm }} />
+        </View>
+      </ScreenScaffold>
+    );
+  }
 
   return (
     <ScreenScaffold title={report.periodLabel} subtitle={`Generated ${report.generatedDateLabel}`}>
-      {/* Auto-written narrative summary */}
       <Card style={styles.narrativeCard}>
         <Text style={styles.narrativeTag}>AUTO-GENERATED SUMMARY</Text>
 
-        <Text style={styles.narrativeHeading}>Top 3 wins</Text>
+        <Text style={styles.narrativeHeading}>Top wins</Text>
         {report.wins.map((w, i) => (
           <NarrativeLine key={i} index={i + 1} text={w} tone="win" />
         ))}
 
-        <Text style={[styles.narrativeHeading, { marginTop: spacing.md }]}>Top 3 problem areas</Text>
+        <Text style={[styles.narrativeHeading, { marginTop: spacing.md }]}>Problem areas</Text>
         {report.problems.map((p, i) => (
           <NarrativeLine key={i} index={i + 1} text={p} tone="problem" />
         ))}
       </Card>
 
-      {/* Breakdown */}
       <Card>
         <Text style={styles.sectionHeader}>Performance breakdown</Text>
         <View style={{ gap: spacing.sm, marginTop: spacing.xs }}>
@@ -88,4 +130,5 @@ const styles = StyleSheet.create({
   statLabel: { fontFamily: font.sansMedium, fontSize: 13, color: color.textOnLight },
   statValue: { fontFamily: font.serifSemiBold, fontSize: 16, color: color.textOnLight },
   statDelta: { fontFamily: font.sansSemiBold, fontSize: 11, marginTop: 2 },
+  errorText: { fontFamily: font.sans, fontSize: 13, color: color.danger, textAlign: 'center' },
 });

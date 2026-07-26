@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Pressable, Alert } from 'react-native';
 import { ScreenScaffold } from '../components/ScreenScaffold';
 import { Card } from '../components/Card';
 import { InfoRow } from '../components/InfoRow';
@@ -8,6 +8,7 @@ import { Button } from '../components/Button';
 import { EditProfileModal } from '../components/EditProfileModal';
 import { color, font, spacing } from '../theme/tokens';
 import { fetchMyProfile, ProfileRecord } from '../services/profileService';
+import { signOut } from '../services/authService';
 import {
   accountDetails,
   initialNotificationPreferences,
@@ -23,8 +24,30 @@ export function ProfileScreen() {
 
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [prefs, setPrefs] = useState<NotificationPreferences>(initialNotificationPreferences);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const toggleReveal = (field: string) => setRevealed((prev) => ({ ...prev, [field]: !prev[field] }));
+
+  const handleLogout = () => {
+    Alert.alert('Log out?', 'You can sign back in any time with the same email and password.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: async () => {
+          setLoggingOut(true);
+          try {
+            await signOut();
+            // No navigation needed -- App.tsx listens for the auth state
+            // change this triggers and swaps to AuthNavigator on its own.
+          } catch (e) {
+            setLoggingOut(false);
+            Alert.alert('Could not log out', e instanceof Error ? e.message : 'Please try again.');
+          }
+        },
+      },
+    ]);
+  };
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -162,6 +185,8 @@ export function ProfileScreen() {
           />
         </View>
       </Card>
+
+      <Button label="Log out" variant="secondary" onPress={handleLogout} loading={loggingOut} fullWidth />
 
       <EditProfileModal
         visible={editVisible}
