@@ -73,8 +73,23 @@ async function acceptPendingStaffInvitations() {
   }
 }
 
+/**
+ * Sign the user out.
+ *
+ * Uses `scope: 'local'` on purpose. The default `signOut()` scope is
+ * 'global', which calls Supabase's API to revoke the refresh token
+ * server-side *before* it clears the session that's persisted in
+ * AsyncStorage. If that network call fails or hangs (flaky connection,
+ * an already-expired/invalid token, backgrounded app, etc.) the promise
+ * rejects, the local session is never cleared, `onAuthStateChange` in
+ * App.tsx never fires, and the UI just... stays on the Profile screen --
+ * which is exactly the "Log out button does nothing" symptom. 'local'
+ * clears the on-device session immediately without waiting on that round
+ * trip, so the SIGNED_OUT event always fires and the app reliably swaps
+ * to AuthNavigator.
+ */
 export async function signOut() {
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut({ scope: 'local' });
   if (error) throw error;
 }
 

@@ -7,6 +7,7 @@ import type { Session } from '@supabase/supabase-js';
 import { useAppFonts } from './src/theme/useAppFonts';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AuthNavigator } from './src/navigation/AuthNavigator';
+import { ConfirmDialogHost } from './src/components/ConfirmDialogHost';
 import { supabase } from './src/lib/supabase';
 import { color } from './src/theme/tokens';
 
@@ -71,6 +72,7 @@ export default function App() {
       <NavigationContainer>
         {session ? <RootNavigator /> : <AuthNavigator />}
       </NavigationContainer>
+      <ConfirmDialogHost />
     </SafeAreaProvider>
   );
 }

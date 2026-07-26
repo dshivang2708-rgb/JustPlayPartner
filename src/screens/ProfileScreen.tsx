@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Pressable, Alert } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { ScreenScaffold } from '../components/ScreenScaffold';
 import { Card } from '../components/Card';
 import { InfoRow } from '../components/InfoRow';
@@ -9,6 +9,7 @@ import { EditProfileModal } from '../components/EditProfileModal';
 import { color, font, spacing } from '../theme/tokens';
 import { fetchMyProfile, ProfileRecord } from '../services/profileService';
 import { signOut } from '../services/authService';
+import { confirmAction, notify } from '../lib/confirm';
 import {
   accountDetails,
   initialNotificationPreferences,
@@ -29,24 +30,26 @@ export function ProfileScreen() {
   const toggleReveal = (field: string) => setRevealed((prev) => ({ ...prev, [field]: !prev[field] }));
 
   const handleLogout = () => {
-    Alert.alert('Log out?', 'You can sign back in any time with the same email and password.', [
-      { text: 'Cancel', style: 'cancel' },
+    console.log('[DEBUG] handleLogout fired'); // TEMP -- remove after debugging
+    confirmAction(
       {
-        text: 'Log out',
-        style: 'destructive',
-        onPress: async () => {
-          setLoggingOut(true);
-          try {
-            await signOut();
-            // No navigation needed -- App.tsx listens for the auth state
-            // change this triggers and swaps to AuthNavigator on its own.
-          } catch (e) {
-            setLoggingOut(false);
-            Alert.alert('Could not log out', e instanceof Error ? e.message : 'Please try again.');
-          }
-        },
+        title: 'Log out?',
+        message: 'You can sign back in any time with the same email and password.',
+        confirmLabel: 'Log out',
+        destructive: true,
       },
-    ]);
+      async () => {
+        setLoggingOut(true);
+        try {
+          await signOut();
+          // No navigation needed -- App.tsx listens for the auth state
+          // change this triggers and swaps to AuthNavigator on its own.
+        } catch (e) {
+          setLoggingOut(false);
+          notify('Could not log out', e instanceof Error ? e.message : 'Please try again.');
+        }
+      }
+    );
   };
 
   const loadProfile = useCallback(async () => {
