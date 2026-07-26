@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { color, font, radius, spacing } from '../theme/tokens';
-import { StaffRole } from '../data/staffData';
+import { StaffRole } from '../services/staffService';
 
 const ROLE_STYLE: Record<StaffRole, { bg: string; fg: string }> = {
   Owner: { bg: color.goldMuted, fg: '#8A6A2E' },

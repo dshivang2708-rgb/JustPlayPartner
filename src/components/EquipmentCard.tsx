@@ -2,22 +2,28 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Card } from './Card';
 import { color, font, radius, spacing } from '../theme/tokens';
-import { EquipmentItem } from '../data/equipmentData';
+import { EquipmentItem } from '../services/equipmentService';
 
 type Props = {
   item: EquipmentItem;
   quantity: number;
   onAdd: () => void;
   onRemove: () => void;
+  onEdit?: () => void;
 };
 
-export function EquipmentCard({ item, quantity, onAdd, onRemove }: Props) {
+export function EquipmentCard({ item, quantity, onAdd, onRemove, onEdit }: Props) {
   const lowStock = item.stock <= item.lowStockThreshold;
 
   return (
     <Card style={styles.card}>
       <View style={styles.headerRow}>
         <Text style={styles.category}>{item.category}</Text>
+        {onEdit && (
+          <Pressable onPress={onEdit} hitSlop={8}>
+            <Text style={styles.editLink}>Edit</Text>
+          </Pressable>
+        )}
         {lowStock && (
           <View style={styles.lowStockBadge}>
             <Text style={styles.lowStockText}>Low stock</Text>
@@ -56,6 +62,7 @@ const styles = StyleSheet.create({
   category: { fontFamily: font.sansSemiBold, fontSize: 10, letterSpacing: 0.4, color: color.textOnLightFaint, textTransform: 'uppercase' },
   lowStockBadge: { backgroundColor: color.warningBg, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3 },
   lowStockText: { fontFamily: font.sansSemiBold, fontSize: 10, color: color.warning },
+  editLink: { fontFamily: font.sansSemiBold, fontSize: 11, color: color.gold },
   name: { fontFamily: font.sansSemiBold, fontSize: 14, color: color.textOnLight, marginTop: 6, minHeight: 34 },
   stock: { fontFamily: font.sans, fontSize: 11, color: color.textOnLightMuted, marginTop: 2 },
   footerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm },

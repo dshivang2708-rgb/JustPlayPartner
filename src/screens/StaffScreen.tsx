@@ -1,20 +1,26 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { ScreenScaffold } from '../components/ScreenScaffold';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { SegmentedControl } from '../components/SegmentedControl';
+import { ChipRow } from '../components/ChipRow';
 import { StaffRow } from '../components/StaffRow';
-import { color, font, radius, spacing } from '../theme/tokens';
+import { InviteStaffForm } from '../components/InviteStaffForm';
+import { EditStaffModal } from '../components/EditStaffModal';
+import { ShiftCalendar } from '../components/ShiftCalendar';
+import { color, font, spacing } from '../theme/tokens';
+import { fetchMyVenues, VenueRecord } from '../services/venuesService';
 import {
-  staffMembers,
-  ROLE_DEFAULT_PERMISSIONS,
-  StaffRole,
-  Permission,
-  WEEK_DAYS,
-  shiftAssignments,
+  fetchStaffForVenue,
+  removeStaffMember,
+  cancelInvitation,
+  fetchShiftsForVenue,
+  setShift,
+  StaffMember,
   ShiftCode,
-} from '../data/staffData';
+} from '../services/staffService';
+import { supabase } from '../lib/supabase';
 
 const MODES = [
   { key: 'list', label: 'Staff list' },
@@ -22,234 +28,212 @@ const MODES = [
   { key: 'shifts', label: 'Shift calendar' },
 ];
 
-const ALL_PERMISSIONS: Permission[] = [
-  'Manage bookings',
-  'Manage pricing',
-  'View payments',
-  'Manage staff',
-  'View analytics',
-  'Manage marketing',
-];
-
 export function StaffScreen() {
   const [mode, setMode] = useState('list');
 
-  return (
-    <ScreenScaffold title="Staff" subtitle={`${staffMembers.length} team members`}>
-      <SegmentedControl options={MODES} selectedKey={mode} onChange={setMode} />
+  const [venues, setVenues] = useState<VenueRecord[]>([]);
+  const [venuesLoading, setVenuesLoading] = useState(true);
+  const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
 
-      {mode === 'list' && (
-        <Card padded={false}>
-          <View style={{ padding: spacing.md }}>
-            {staffMembers.map((m) => (
-              <StaffRow key={m.id} member={m} />
-            ))}
-          </View>
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [staffLoading, setStaffLoading] = useState(true);
+  const [staffError, setStaffError] = useState<string | null>(null);
+
+  const [shifts, setShifts] = useState<Record<string, ShiftCode[]>>({});
+  const [shiftsLoading, setShiftsLoading] = useState(true);
+  const [shiftsError, setShiftsError] = useState<string | null>(null);
+  const [savingCell, setSavingCell] = useState<string | null>(null);
+
+  const [editTarget, setEditTarget] = useState<StaffMember | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      setVenuesLoading(true);
+      try {
+        const data = await fetchMyVenues();
+        setVenues(data);
+        setSelectedVenueId((prev) => prev ?? data[0]?.id ?? null);
+      } catch {
+        // Venues section on Home already surfaces load errors -- here we
+        // just fall through to the "add a venue first" empty state below.
+      } finally {
+        setVenuesLoading(false);
+      }
+    })();
+  }, []);
+
+  const loadStaff = useCallback(async (venueId: string) => {
+    setStaffLoading(true);
+    setStaffError(null);
+    try {
+      const data = await fetchStaffForVenue(venueId);
+      setStaff(data);
+    } catch (e) {
+      setStaffError(e instanceof Error ? e.message : 'Could not load staff.');
+    } finally {
+      setStaffLoading(false);
+    }
+  }, []);
+
+  const loadShifts = useCallback(async (venueId: string) => {
+    setShiftsLoading(true);
+    setShiftsError(null);
+    try {
+      const data = await fetchShiftsForVenue(venueId);
+      setShifts(data);
+    } catch (e) {
+      setShiftsError(e instanceof Error ? e.message : 'Could not load the shift calendar.');
+    } finally {
+      setShiftsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedVenueId) {
+      loadStaff(selectedVenueId);
+      loadShifts(selectedVenueId);
+    }
+  }, [selectedVenueId, loadStaff, loadShifts]);
+
+  const activeStaff = useMemo(() => staff.filter((m) => m.kind === 'active'), [staff]);
+
+  const handleRemove = (member: StaffMember) => {
+    const isPending = member.kind === 'pending';
+    Alert.alert(
+      isPending ? 'Cancel invitation?' : 'Remove staff member?',
+      isPending
+        ? `This cancels the pending invitation for ${member.name}.`
+        : `${member.name} will lose access to this venue immediately.`,
+      [
+        { text: 'Back', style: 'cancel' },
+        {
+          text: isPending ? 'Cancel invitation' : 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (isPending) await cancelInvitation(member.id);
+              else await removeStaffMember(member.id);
+              setStaff((prev) => prev.filter((m) => m.id !== member.id));
+            } catch (e) {
+              Alert.alert('Something went wrong', e instanceof Error ? e.message : 'Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleShiftCellPress = async (staffId: string, dayIndex: number, currentCode: ShiftCode) => {
+    if (!selectedVenueId) return;
+    const nextCode: ShiftCode = currentCode === 'M' ? 'E' : currentCode === 'E' ? 'O' : 'M';
+    const cellKey = `${staffId}:${dayIndex}`;
+
+    // Optimistic update -- revert on failure.
+    const previous = shifts[staffId] ?? ['O', 'O', 'O', 'O', 'O', 'O', 'O'];
+    setShifts((prev) => ({
+      ...prev,
+      [staffId]: previous.map((c, i) => (i === dayIndex ? nextCode : c)),
+    }));
+    setSavingCell(cellKey);
+
+    try {
+      await setShift({ venueId: selectedVenueId, staffId, dayOfWeek: dayIndex, shiftCode: nextCode });
+    } catch (e) {
+      setShifts((prev) => ({ ...prev, [staffId]: previous }));
+      Alert.alert('Could not save shift', e instanceof Error ? e.message : 'Please try again.');
+    } finally {
+      setSavingCell(null);
+    }
+  };
+
+  const selectedVenue = venues.find((v) => v.id === selectedVenueId);
+
+  return (
+    <ScreenScaffold title="Staff" subtitle={selectedVenue ? selectedVenue.name : `${venues.length} venues`}>
+      {venuesLoading ? (
+        <ActivityIndicator color={color.gold} style={{ marginVertical: spacing.md }} />
+      ) : venues.length === 0 ? (
+        <Card>
+          <Text style={styles.emptyText}>Add a venue on the Home tab first — staff are managed per venue.</Text>
         </Card>
+      ) : (
+        <>
+          {venues.length > 1 && (
+            <ChipRow
+              chips={venues.map((v) => ({ key: v.id, label: v.name }))}
+              selectedKey={selectedVenueId ?? venues[0].id}
+              onSelect={setSelectedVenueId}
+            />
+          )}
+
+          <SegmentedControl options={MODES} selectedKey={mode} onChange={setMode} />
+
+          {mode === 'list' &&
+            (staffLoading ? (
+              <ActivityIndicator color={color.gold} style={{ marginVertical: spacing.md }} />
+            ) : staffError ? (
+              <Card>
+                <Text style={styles.errorText}>{staffError}</Text>
+                <Button
+                  label="Retry"
+                  variant="secondary"
+                  size="sm"
+                  onPress={() => selectedVenueId && loadStaff(selectedVenueId)}
+                  style={{ marginTop: spacing.sm }}
+                />
+              </Card>
+            ) : (
+              <Card padded={false}>
+                <View style={{ padding: spacing.md }}>
+                  {staff.map((m) => (
+                    <StaffRow
+                      key={m.id}
+                      member={m}
+                      disableActions={m.kind === 'active' && m.role === 'Owner' && m.id === currentUserId}
+                      onEdit={m.kind === 'active' ? () => setEditTarget(m) : undefined}
+                      onRemove={() => handleRemove(m)}
+                    />
+                  ))}
+                </View>
+              </Card>
+            ))}
+
+          {mode === 'add' && selectedVenueId && (
+            <InviteStaffForm venueId={selectedVenueId} onInvited={(member) => setStaff((prev) => [...prev, member])} />
+          )}
+
+          {mode === 'shifts' && (
+            <ShiftCalendar
+              staff={activeStaff}
+              shifts={shifts}
+              loading={shiftsLoading}
+              error={shiftsError}
+              onRetry={() => selectedVenueId && loadShifts(selectedVenueId)}
+              onCellPress={handleShiftCellPress}
+              savingCell={savingCell}
+            />
+          )}
+        </>
       )}
 
-      {mode === 'add' && <AddStaffForm />}
-      {mode === 'shifts' && <ShiftCalendar />}
+      <EditStaffModal
+        visible={editTarget !== null}
+        member={editTarget}
+        onClose={() => setEditTarget(null)}
+        onSaved={(staffId, role, permissions) =>
+          setStaff((prev) => prev.map((m) => (m.id === staffId ? { ...m, role, permissions } : m)))
+        }
+      />
     </ScreenScaffold>
   );
 }
 
-function AddStaffForm() {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [role, setRole] = useState<StaffRole>('Front Desk');
-  const [permissions, setPermissions] = useState<Permission[]>(ROLE_DEFAULT_PERMISSIONS['Front Desk']);
-
-  const applyRole = (r: StaffRole) => {
-    setRole(r);
-    setPermissions(ROLE_DEFAULT_PERMISSIONS[r]);
-  };
-
-  const togglePermission = (p: Permission) => {
-    setPermissions((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
-  };
-
-  return (
-    <Card>
-      <Text style={styles.cardTitle}>Add a staff member</Text>
-
-      <Field label="Full name">
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          placeholder="e.g. Sameer Khan"
-          placeholderTextColor={color.textOnLightFaint}
-          style={styles.input}
-        />
-      </Field>
-
-      <Field label="Phone number">
-        <TextInput
-          value={phone}
-          onChangeText={setPhone}
-          placeholder="10-digit mobile number"
-          placeholderTextColor={color.textOnLightFaint}
-          keyboardType="phone-pad"
-          style={styles.input}
-        />
-      </Field>
-
-      <Field label="Role">
-        <View style={styles.roleRow}>
-          {(['Owner', 'Manager', 'Front Desk'] as StaffRole[]).map((r) => (
-            <Pressable
-              key={r}
-              onPress={() => applyRole(r)}
-              style={[styles.roleChip, role === r && styles.roleChipActive]}
-            >
-              <Text style={[styles.roleChipText, role === r && styles.roleChipTextActive]}>{r}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </Field>
-
-      <Field label="Permissions">
-        <Text style={styles.helpText}>Defaults are applied from the role — adjust as needed.</Text>
-        <View style={{ gap: spacing.xs, marginTop: spacing.xs }}>
-          {ALL_PERMISSIONS.map((p) => {
-            const checked = permissions.includes(p);
-            return (
-              <Pressable key={p} onPress={() => togglePermission(p)} style={styles.permRow}>
-                <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                  {checked && <Text style={styles.checkboxMark}>✓</Text>}
-                </View>
-                <Text style={styles.permLabel}>{p}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </Field>
-
-      <Button label="Add staff member" variant="primary" fullWidth style={{ marginTop: spacing.xs }} />
-    </Card>
-  );
-}
-
-function ShiftCalendar() {
-  const assignedStaff = staffMembers.filter((m) => shiftAssignments[m.id]);
-
-  return (
-    <Card padded={false}>
-      <View style={{ padding: spacing.md }}>
-        {/* Header row */}
-        <View style={styles.calRow}>
-          <Text style={[styles.calCell, styles.calNameHeader]}>Staff</Text>
-          {WEEK_DAYS.map((d) => (
-            <Text key={d} style={[styles.calCell, styles.calDayHeader]}>
-              {d}
-            </Text>
-          ))}
-        </View>
-
-        {assignedStaff.map((m) => (
-          <View key={m.id} style={styles.calRow}>
-            <Text style={[styles.calCell, styles.calName]} numberOfLines={1}>
-              {m.name.split(' ')[0]}
-            </Text>
-            {shiftAssignments[m.id].map((shift, i) => (
-              <ShiftPill key={i} shift={shift} />
-            ))}
-          </View>
-        ))}
-
-        <View style={styles.legendRow}>
-          <LegendDot color={color.info} label="Morning" code="M" />
-          <LegendDot color={color.gold} label="Evening" code="E" />
-          <LegendDot color={color.textOnLightFaint} label="Off" code="O" />
-        </View>
-      </View>
-    </Card>
-  );
-}
-
-function ShiftPill({ shift }: { shift: ShiftCode }) {
-  const bg = shift === 'M' ? color.infoBg : shift === 'E' ? color.goldMuted : color.background;
-  const fg = shift === 'M' ? color.info : shift === 'E' ? '#8A6A2E' : color.textOnLightFaint;
-  return (
-    <View style={[styles.calCell, styles.shiftPill, { backgroundColor: bg }]}>
-      <Text style={[styles.shiftPillText, { color: fg }]}>{shift}</Text>
-    </View>
-  );
-}
-
-function LegendDot({ color: dotColor, label, code }: { color: string; label: string; code: ShiftCode }) {
-  return (
-    <View style={styles.legendItem}>
-      <View style={[styles.legendDot, { backgroundColor: dotColor }]} />
-      <Text style={styles.legendLabel}>
-        {label} ({code})
-      </Text>
-    </View>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <View style={{ gap: spacing.xs, marginBottom: spacing.md }}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      {children}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  cardTitle: { fontFamily: font.serifSemiBold, fontSize: 17, color: color.textOnLight, marginBottom: spacing.md },
-  fieldLabel: { fontFamily: font.sansMedium, fontSize: 13, color: color.textOnLightMuted },
-  helpText: { fontFamily: font.sans, fontSize: 12, color: color.textOnLightMuted },
-  input: {
-    backgroundColor: color.background,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    fontFamily: font.sans,
-    fontSize: 14,
-    color: color.textOnLight,
-  },
-
-  roleRow: { flexDirection: 'row', gap: spacing.xs },
-  roleChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 9,
-    borderRadius: radius.pill,
-    backgroundColor: color.background,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  roleChipActive: { backgroundColor: color.chromeNavy, borderColor: color.chromeNavy },
-  roleChipText: { fontFamily: font.sansMedium, fontSize: 13, color: color.textOnLightMuted },
-  roleChipTextActive: { color: color.gold, fontFamily: font.sansSemiBold },
-
-  permRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
-    borderWidth: 1.5,
-    borderColor: color.borderStrong,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxChecked: { backgroundColor: color.gold, borderColor: color.gold },
-  checkboxMark: { fontSize: 12, color: color.chromeBlack, fontFamily: font.sansBold },
-  permLabel: { fontFamily: font.sansMedium, fontSize: 13, color: color.textOnLight },
-
-  calRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
-  calCell: { flex: 1, textAlign: 'center' },
-  calNameHeader: { flex: 1.2, textAlign: 'left', fontFamily: font.sansSemiBold, fontSize: 11, letterSpacing: 0.6, color: color.textOnLightFaint },
-  calDayHeader: { fontFamily: font.sansSemiBold, fontSize: 11, letterSpacing: 0.6, color: color.textOnLightFaint },
-  calName: { flex: 1.2, textAlign: 'left', fontFamily: font.sansSemiBold, fontSize: 12, color: color.textOnLight },
-  shiftPill: { borderRadius: radius.sm, paddingVertical: 6, marginHorizontal: 1 },
-  shiftPillText: { fontFamily: font.sansSemiBold, fontSize: 11, textAlign: 'center' },
-
-  legendRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: color.border },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendLabel: { fontFamily: font.sansMedium, fontSize: 12, color: color.textOnLightMuted },
+  emptyText: { fontFamily: font.sans, fontSize: 13, color: color.textOnLightMuted, textAlign: 'center', paddingVertical: spacing.md },
+  errorText: { fontFamily: font.sans, fontSize: 13, color: color.danger, textAlign: 'center' },
 });

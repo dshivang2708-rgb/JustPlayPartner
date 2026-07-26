@@ -2,5 +2,13 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  // supabase/functions/** run on Supabase's Deno runtime, not in this Expo
+  // app -- they use Deno's global `Deno` object and remote https imports,
+  // neither of which the app's own TS/Metro setup understands. Excluding
+  // them here stops tsc (and Metro, which otherwise may still try to parse
+  // reachable .ts files under this config) from flagging them as errors.
+  // If you open supabase/functions in an editor, use Deno's own tooling
+  // (the Deno VS Code extension) there instead.
+  "exclude": ["node_modules", "supabase/functions"]
 }

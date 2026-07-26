@@ -3,16 +3,17 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Card } from './Card';
 import { Button } from './Button';
 import { color, font, radius, spacing } from '../theme/tokens';
-import { Suggestion } from '../data/suggestionsData';
+import { Suggestion } from '../services/suggestionsService';
 
 type Props = {
   suggestion: Suggestion;
   onApply: () => void;
   onDismiss: () => void;
   onRemindLater: () => void;
+  applying?: boolean;
 };
 
-export function SuggestionCard({ suggestion, onApply, onDismiss, onRemindLater }: Props) {
+export function SuggestionCard({ suggestion, onApply, onDismiss, onRemindLater, applying }: Props) {
   const [showWhy, setShowWhy] = useState(false);
 
   return (
@@ -42,9 +43,17 @@ export function SuggestionCard({ suggestion, onApply, onDismiss, onRemindLater }
       )}
 
       <View style={styles.actionsRow}>
-        <Button label="Apply" variant="primary" size="sm" onPress={onApply} style={{ flex: 1 }} fullWidth />
-        <Button label="Remind later" variant="secondary" size="sm" onPress={onRemindLater} style={{ flex: 1 }} fullWidth />
-        <Button label="Dismiss" variant="ghost" size="sm" onPress={onDismiss} style={{ flex: 1 }} fullWidth />
+        <Button
+          label={suggestion.hasAutomatedApply ? 'Apply' : 'Mark handled'}
+          variant="primary"
+          size="sm"
+          onPress={onApply}
+          loading={applying}
+          style={{ flex: 1 }}
+          fullWidth
+        />
+        <Button label="Remind later" variant="secondary" size="sm" onPress={onRemindLater} disabled={applying} style={{ flex: 1 }} fullWidth />
+        <Button label="Dismiss" variant="ghost" size="sm" onPress={onDismiss} disabled={applying} style={{ flex: 1 }} fullWidth />
       </View>
     </Card>
   );

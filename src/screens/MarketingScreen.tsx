@@ -1,16 +1,56 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, Alert, Linking } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, TextInput, Pressable, StyleSheet, Alert, Linking, ActivityIndicator } from 'react-native';
 import { ScreenScaffold } from '../components/ScreenScaffold';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { CouponCard } from '../components/CouponCard';
+import { ChipRow } from '../components/ChipRow';
+import { TargetedNotificationComposer } from '../components/TargetedNotificationComposer';
+import { CampaignHistoryRow } from '../components/CampaignHistoryRow';
 import { color, font, radius, spacing } from '../theme/tokens';
 import { coupons, microsite, recentBroadcasts, BroadcastMessage } from '../data/marketingData';
+import { fetchMyVenues, VenueRecord } from '../services/venuesService';
+import { fetchCampaignHistory, Campaign } from '../services/marketingNotificationsService';
 
 const CHANNELS: BroadcastMessage['channel'][] = ['In-App', 'SMS', 'WhatsApp'];
 
 export function MarketingScreen() {
   const activeCoupons = coupons.filter((c) => c.active);
+
+  const [venues, setVenues] = useState<VenueRecord[]>([]);
+  const [venuesLoading, setVenuesLoading] = useState(true);
+  const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
+
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setVenuesLoading(true);
+      try {
+        const data = await fetchMyVenues();
+        setVenues(data);
+        setSelectedVenueId((prev) => prev ?? data[0]?.id ?? null);
+      } finally {
+        setVenuesLoading(false);
+      }
+    })();
+  }, []);
+
+  const loadCampaigns = useCallback(async (venueId: string) => {
+    setCampaignsLoading(true);
+    try {
+      setCampaigns(await fetchCampaignHistory(venueId));
+    } finally {
+      setCampaignsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedVenueId) loadCampaigns(selectedVenueId);
+  }, [selectedVenueId, loadCampaigns]);
+
+  const selectedVenue = venues.find((v) => v.id === selectedVenueId);
 
   return (
     <ScreenScaffold title="Marketing" subtitle={`${activeCoupons.length} active offers`}>
@@ -44,6 +84,44 @@ export function MarketingScreen() {
           </View>
         </Card>
       </View>
+
+      {/* Targeted in-app + push notifications -- real, backed by actual booking data */}
+      {venuesLoading ? (
+        <ActivityIndicator color={color.gold} style={{ marginVertical: spacing.md }} />
+      ) : venues.length === 0 ? (
+        <Card>
+          <Text style={styles.emptyText}>Add a venue on the Home tab first to send targeted notifications.</Text>
+        </Card>
+      ) : (
+        <>
+          {venues.length > 1 && (
+            <ChipRow
+              chips={venues.map((v) => ({ key: v.id, label: v.name }))}
+              selectedKey={selectedVenueId ?? venues[0].id}
+              onSelect={setSelectedVenueId}
+            />
+          )}
+
+          {selectedVenueId && (
+            <TargetedNotificationComposer venueId={selectedVenueId} onSent={() => loadCampaigns(selectedVenueId)} />
+          )}
+
+          <View>
+            <Text style={styles.sectionHeader}>Notification history</Text>
+            <Card padded={false}>
+              <View style={{ padding: spacing.md }}>
+                {campaignsLoading ? (
+                  <ActivityIndicator color={color.gold} />
+                ) : campaigns.length === 0 ? (
+                  <Text style={styles.emptyText}>No targeted notifications sent yet.</Text>
+                ) : (
+                  campaigns.map((c) => <CampaignHistoryRow key={c.id} campaign={c} />)
+                )}
+              </View>
+            </Card>
+          </View>
+        </>
+      )}
     </ScreenScaffold>
   );
 }
@@ -165,4 +243,5 @@ const styles = StyleSheet.create({
   broadcastRow: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: color.border },
   broadcastMessage: { fontFamily: font.sansMedium, fontSize: 13, color: color.textOnLight },
   broadcastMeta: { fontFamily: font.sans, fontSize: 11, color: color.textOnLightMuted, marginTop: 3 },
+  emptyText: { fontFamily: font.sans, fontSize: 13, color: color.textOnLightMuted, textAlign: 'center', paddingVertical: spacing.md },
 });

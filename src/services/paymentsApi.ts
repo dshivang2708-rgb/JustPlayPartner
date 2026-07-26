@@ -1,33 +1,34 @@
 /**
  * Payments API service layer.
  *
- * PRODUCTION NOTE — read before wiring a real backend:
- * Payment link creation must happen on YOUR backend, never in this app.
- * The mobile client should only ever call your own API (e.g.
- * `POST /api/venues/:id/payment-links`), and your backend is what holds the
- * Razorpay/Stripe secret key and calls their server-side API
- * (e.g. Razorpay's `/v1/payment_links` endpoint) using it.
+ * Payment link creation happens in the create-payment-link Supabase Edge
+ * Function (supabase/functions/create-payment-link/index.ts) -- that's
+ * where the Razorpay secret key actually lives, never in this app. This
+ * file just calls that function via supabase.functions.invoke(), which
+ * automatically attaches the signed-in partner's session token so the
+ * function can re-verify they're allowed to act on the venue in question.
  *
- * Never:
- *  - Embed a payment gateway secret key in this app's source or env config
- *    bundled into the client — anything shipped to a phone is extractable.
- *  - Trust an amount or status sent from the client as truth — always
- *    re-verify against the gateway's webhook payload server-side.
- *  - Mark a booking "paid" from a client-side success callback alone —
- *    treat webhooks (with signature verification) as the source of truth,
- *    since a client can be closed, killed, or spoofed mid-flow.
- *  - Process a webhook twice — use the gateway's event ID as an idempotency
- *    key so retried webhook deliveries don't double-credit a transaction.
+ * Status updates (success/failed/refunded) are NEVER written by this app --
+ * they only ever come from razorpay-webhook/index.ts after verifying the
+ * gateway's signature. See that file for why a client-side "payment done"
+ * callback is never trusted as the source of truth.
  *
- * This file models the client's contract with your backend. It currently
- * returns mock data so the UI is fully testable before your backend exists;
- * swap MOCK_MODE to false once the endpoints below are live.
+ * MOCK_MODE stays on until you've:
+ *   1. Deployed both Edge Functions (see their file headers for the exact
+ *      `supabase functions deploy` commands)
+ *   2. Set RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET / RAZORPAY_WEBHOOK_SECRET
+ *      as Supabase secrets
+ *   3. Added the webhook URL in the Razorpay Dashboard
+ * Flip it to false only after all three are done and tested with a real
+ * (or Razorpay test-mode) payment.
  */
 
+import { supabase } from '../lib/supabase';
+
 const MOCK_MODE = true;
-const API_BASE_URL = 'https://api.yourdomain.com'; // replace with your real backend URL
 
 export type CreatePaymentLinkRequest = {
+  venueId: string;
   amountInPaise: number; // always send integer paise, never rupee floats
   customerName: string;
   customerPhone: string;
@@ -42,14 +43,15 @@ export type CreatePaymentLinkResponse = {
 
 export class PaymentsApiError extends Error {}
 
-export async function createPaymentLink(
-  req: CreatePaymentLinkRequest
-): Promise<CreatePaymentLinkResponse> {
+export async function createPaymentLink(req: CreatePaymentLinkRequest): Promise<CreatePaymentLinkResponse> {
   if (req.amountInPaise <= 0) {
     throw new PaymentsApiError('Amount must be greater than zero.');
   }
   if (!req.customerPhone || req.customerPhone.replace(/\D/g, '').length < 10) {
     throw new PaymentsApiError('Enter a valid 10-digit phone number.');
+  }
+  if (!req.venueId) {
+    throw new PaymentsApiError('Select a venue first.');
   }
 
   if (MOCK_MODE) {
@@ -63,18 +65,24 @@ export async function createPaymentLink(
     };
   }
 
-  const res = await fetch(`${API_BASE_URL}/api/payment-links`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
+  const { data, error } = await supabase.functions.invoke('create-payment-link', {
+    body: {
+      venueId: req.venueId,
+      amountInRupees: req.amountInPaise / 100,
+      customerName: req.customerName,
+      customerPhone: req.customerPhone,
+      description: req.description,
+    },
   });
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    throw new PaymentsApiError(body?.message ?? `Payment link creation failed (${res.status}).`);
+  if (error) {
+    // supabase-js surfaces non-2xx function responses as a generic error;
+    // the function's own JSON message body is more useful when available.
+    const message = (error as any)?.context?.body?.message ?? error.message ?? 'Payment link creation failed.';
+    throw new PaymentsApiError(message);
   }
 
-  return res.json();
+  return data as CreatePaymentLinkResponse;
 }
 
 /** Converts a rupee string/number input into integer paise, safely. */

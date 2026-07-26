@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -18,6 +18,7 @@ export default function App() {
   const fontsReady = useAppFonts();
   const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
+  const acceptedInvitesForUserId = useRef<string | null>(null);
 
   useEffect(() => {
     // Check for an existing session on launch (e.g. the user already signed
@@ -38,6 +39,23 @@ export default function App() {
       authListener.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    // Covers the case where a staff invitation was created while this user
+    // already had a persisted session (so signIn()/signUpPartner() -- which
+    // also call this -- never ran again). Runs once per restored session,
+    // guarded by user id so it doesn't refire on every token auto-refresh.
+    if (session?.user?.id && acceptedInvitesForUserId.current !== session.user.id) {
+      acceptedInvitesForUserId.current = session.user.id;
+      (async () => {
+        try {
+          await supabase.rpc('accept_my_staff_invitations');
+        } catch {
+          // Non-fatal -- see acceptPendingStaffInvitations() in authService.ts.
+        }
+      })();
+    }
+  }, [session?.user?.id]);
 
   if (!fontsReady || sessionLoading) {
     return (

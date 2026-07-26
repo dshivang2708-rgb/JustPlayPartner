@@ -39,6 +39,8 @@ export async function signUpPartner(input: SignUpInput) {
   if (error) throw error;
   if (!data.user) throw new Error('Sign up did not return a user. Please try again.');
 
+  await acceptPendingStaffInvitations();
+
   return data;
 }
 
@@ -48,7 +50,27 @@ export async function signIn(input: SignInInput) {
     password: input.password,
   });
   if (error) throw error;
+
+  await acceptPendingStaffInvitations();
+
   return data;
+}
+
+/**
+ * Links any pending staff invitations for this account's email to real
+ * venue_staff rows. Safe to call on every sign-in/sign-up -- it's a no-op
+ * if there's nothing pending. See accept_my_staff_invitations() in
+ * supabase/schema.sql for why this has to be a client-triggered RPC call
+ * rather than something that "just happens" server-side: there's no
+ * service-role backend here to push it proactively.
+ */
+async function acceptPendingStaffInvitations() {
+  try {
+    await supabase.rpc('accept_my_staff_invitations');
+  } catch {
+    // Non-fatal -- if this fails, the user just won't see their staff
+    // assignment until the next successful sign-in. Don't block auth on it.
+  }
 }
 
 export async function signOut() {

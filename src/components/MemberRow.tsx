@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { StatusBadge, StatusTone } from './StatusBadge';
-import { color, font, spacing } from '../theme/tokens';
+import { color, font, radius, spacing } from '../theme/tokens';
 import { Member } from '../data/membershipData';
 
 const STATUS_TONE: Record<Member['status'], StatusTone> = {
@@ -16,7 +16,9 @@ const STATUS_LABEL: Record<Member['status'], string> = {
   lapsed: 'Lapsed',
 };
 
-export function MemberRow({ member }: { member: Member }) {
+export function MemberRow({ member, onRenew }: { member: Member; onRenew?: () => void }) {
+  const showRenew = onRenew && (member.status === 'expiring' || member.status === 'lapsed');
+
   return (
     <View style={styles.row}>
       <View style={{ flex: 1 }}>
@@ -25,7 +27,14 @@ export function MemberRow({ member }: { member: Member }) {
           {member.planName} · renews {member.renewalDate}
         </Text>
       </View>
-      <StatusBadge label={STATUS_LABEL[member.status]} tone={STATUS_TONE[member.status]} />
+      <View style={{ alignItems: 'flex-end', gap: 6 }}>
+        <StatusBadge label={STATUS_LABEL[member.status]} tone={STATUS_TONE[member.status]} />
+        {showRenew && (
+          <Pressable onPress={onRenew} style={styles.renewBtn}>
+            <Text style={styles.renewText}>Renew</Text>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -40,4 +49,6 @@ const styles = StyleSheet.create({
   },
   name: { fontFamily: font.sansSemiBold, fontSize: 14, color: color.textOnLight },
   meta: { fontFamily: font.sans, fontSize: 12, color: color.textOnLightMuted, marginTop: 2 },
+  renewBtn: { backgroundColor: color.goldMuted, paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill },
+  renewText: { fontFamily: font.sansSemiBold, fontSize: 11, color: color.gold },
 });

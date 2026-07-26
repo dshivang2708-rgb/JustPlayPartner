@@ -1,14 +1,18 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { color, font, spacing } from '../theme/tokens';
-import { Customer } from '../data/crmData';
+import { Customer } from '../services/crmService';
 
 export function CustomerRow({ customer, onPress }: { customer: Customer; onPress: () => void }) {
-  const initials = customer.name
-    .split(' ')
-    .map((p) => p[0])
-    .join('')
-    .slice(0, 2);
+  const initials =
+    customer.name
+      .trim()
+      .split(' ')
+      .filter(Boolean)
+      .map((p) => p[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase() || '?';
 
   return (
     <Pressable onPress={onPress} style={styles.row}>

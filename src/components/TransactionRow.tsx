@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { StatusBadge, StatusTone } from './StatusBadge';
 import { color, font, spacing } from '../theme/tokens';
-import { Transaction } from '../data/paymentsData';
+import { Transaction } from '../services/paymentsService';
 
 const STATUS_TONE: Record<Transaction['status'], StatusTone> = {
   success: 'success',
