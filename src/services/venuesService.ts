@@ -7,7 +7,22 @@ export type VenueRecord = {
   sports: string[];
   isActive: boolean;
   courtCount: number;
+  coverImageUrls: string[];
 };
+
+const SELECT_COLUMNS = 'id, name, address, sports, is_active, cover_image_urls, courts(count)';
+
+function mapVenue(row: any): VenueRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    address: row.address,
+    sports: row.sports ?? [],
+    isActive: row.is_active,
+    courtCount: row.courts?.[0]?.count ?? 0,
+    coverImageUrls: row.cover_image_urls ?? [],
+  };
+}
 
 /**
  * Fetches venues owned by the currently logged-in partner.
@@ -16,21 +31,17 @@ export type VenueRecord = {
  * ability) to filter by owner_id client-side; the database enforces it.
  */
 export async function fetchMyVenues(): Promise<VenueRecord[]> {
-  const { data, error } = await supabase
-    .from('venues')
-    .select('id, name, address, sports, is_active, courts(count)')
-    .order('created_at', { ascending: false });
+  const { data, error } = await supabase.from('venues').select(SELECT_COLUMNS).order('created_at', { ascending: false });
 
   if (error) throw error;
+  return (data ?? []).map(mapVenue);
+}
 
-  return (data ?? []).map((v: any) => ({
-    id: v.id,
-    name: v.name,
-    address: v.address,
-    sports: v.sports ?? [],
-    isActive: v.is_active,
-    courtCount: v.courts?.[0]?.count ?? 0,
-  }));
+export async function fetchVenueById(id: string): Promise<VenueRecord> {
+  const { data, error } = await supabase.from('venues').select(SELECT_COLUMNS).eq('id', id).single();
+
+  if (error) throw error;
+  return mapVenue(data);
 }
 
 export async function createVenue(input: { name: string; address: string; sports: string[] }): Promise<VenueRecord> {
@@ -43,17 +54,29 @@ export async function createVenue(input: { name: string; address: string; sports
   const { data, error } = await supabase
     .from('venues')
     .insert({ owner_id: user.id, name: input.name, address: input.address, sports: input.sports })
-    .select()
+    .select(SELECT_COLUMNS)
     .single();
 
   if (error) throw error;
+  return mapVenue(data);
+}
 
-  return {
-    id: data.id,
-    name: data.name,
-    address: data.address,
-    sports: data.sports ?? [],
-    isActive: data.is_active,
-    courtCount: 0,
-  };
+/**
+ * Edits an existing venue. RLS ("Owners can update their own venues") means
+ * this silently affects zero rows if the caller doesn't own it -- Supabase
+ * won't error, so treat an unexpectedly-empty result as a real error too.
+ */
+export async function updateVenue(
+  id: string,
+  input: { name: string; address: string; sports: string[]; isActive: boolean }
+): Promise<VenueRecord> {
+  const { data, error } = await supabase
+    .from('venues')
+    .update({ name: input.name, address: input.address, sports: input.sports, is_active: input.isActive })
+    .eq('id', id)
+    .select(SELECT_COLUMNS)
+    .single();
+
+  if (error) throw error;
+  return mapVenue(data);
 }

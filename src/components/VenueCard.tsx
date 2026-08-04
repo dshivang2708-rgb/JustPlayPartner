@@ -1,27 +1,29 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Card } from './Card';
 import { StatusBadge } from './StatusBadge';
 import { color, font, spacing } from '../theme/tokens';
 import { Venue } from '../data/homeData';
 
-export function VenueCard({ venue }: { venue: Venue }) {
+export function VenueCard({ venue, onPress }: { venue: Venue; onPress?: () => void }) {
   return (
-    <Card style={styles.card}>
-      <View style={styles.headerRow}>
-        <Text style={styles.name} numberOfLines={1}>
-          {venue.name}
+    <Pressable onPress={onPress} disabled={!onPress}>
+      <Card style={styles.card}>
+        <View style={styles.headerRow}>
+          <Text style={styles.name} numberOfLines={1}>
+            {venue.name}
+          </Text>
+          <StatusBadge label={venue.status === 'active' ? 'Active' : 'Inactive'} tone={venue.status === 'active' ? 'success' : 'neutral'} />
+        </View>
+        <Text style={styles.address}>{venue.address}</Text>
+        <Text style={styles.sports} numberOfLines={1}>
+          {venue.sportsLabel}
         </Text>
-        <StatusBadge label={venue.status === 'active' ? 'Active' : 'Inactive'} tone={venue.status === 'active' ? 'success' : 'neutral'} />
-      </View>
-      <Text style={styles.address}>{venue.address}</Text>
-      <Text style={styles.sports} numberOfLines={1}>
-        {venue.sportsLabel}
-      </Text>
-      <View style={styles.footerRow}>
-        <Text style={styles.courtCount}>{venue.courtCount} courts / turfs</Text>
-      </View>
-    </Card>
+        <View style={styles.footerRow}>
+          <Text style={styles.courtCount}>{venue.courtCount} courts / turfs</Text>
+        </View>
+      </Card>
+    </Pressable>
   );
 }
 

@@ -23,8 +23,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const RAZORPAY_WEBHOOK_SECRET = Deno.env.get('RAZORPAY_WEBHOOK_SECRET')!;
-const SUPABASE_URL = Deno.env.get('https://guhfzzykoepmeqekbyxj.supabase.co')!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1aGZ6enlrb2VwbWVxZWtieXhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NDg3MTQwOSwiZXhwIjoyMTAwNDQ3NDA5fQ.3auv-ZNzWjTxuPquEfeqfL6ZXFMzcfUJzOiLfwG7v54')!;
+// Auto-injected by Supabase into every Edge Function -- do not hardcode.
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') {
@@ -110,10 +111,25 @@ async function handleEvent(supabaseAdmin: ReturnType<typeof createClient>, paylo
       const linkId = paymentEntity?.notes?.payment_link_id;
       if (!linkId) return;
 
-      await supabaseAdmin
+      const { data: updatedPayment } = await supabaseAdmin
         .from('payments')
         .update({ status: 'failed', gateway_payment_id: paymentEntity?.id ?? null })
-        .eq('gateway_payment_link_id', linkId);
+        .eq('gateway_payment_link_id', linkId)
+        .select('booking_id')
+        .maybeSingle();
+
+      // Consumer-app online bookings reserve the slot immediately (via the
+      // exclusion constraint) at the moment the customer confirms their
+      // selection, before payment completes. If payment then fails, that
+      // reservation must be released -- otherwise the slot stays locked
+      // forever for a booking nobody actually paid for.
+      if (updatedPayment?.booking_id) {
+        await supabaseAdmin
+          .from('bookings')
+          .update({ status: 'cancelled', cancellation_reason: 'Payment failed' })
+          .eq('id', updatedPayment.booking_id)
+          .eq('status', 'confirmed');
+      }
       return;
     }
 

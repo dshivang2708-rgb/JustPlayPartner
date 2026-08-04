@@ -13,6 +13,7 @@
     "expo": "~57.0.8",
     "expo-blur": "^57.0.2",
     "expo-font": "^57.0.1",
+    "expo-image-picker": "~57.0.7",
     "expo-linear-gradient": "^57.0.1",
     "expo-print": "~57.0.1",
     "expo-sharing": "~57.0.7",

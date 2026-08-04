@@ -15,12 +15,17 @@ export type SignInInput = {
 };
 
 /**
- * Creates the auth user. The matching `profiles` row (role='partner') is
- * created server-side by a Postgres trigger (see
- * supabase/schema.sql -> handle_new_user()) that fires on auth.users
- * insert and reads these fields back out of raw_user_meta_data. This
- * avoids a client-side insert racing against RLS when email confirmation
- * is enabled and no session exists yet right after signUp().
+ * Creates the auth user. The matching `profiles` row is created
+ * server-side by a Postgres trigger (see
+ * supabase/migrations/006_fix_handle_new_user.sql -> handle_new_user())
+ * that fires on auth.users insert and reads these fields back out of
+ * raw_user_meta_data. This avoids a client-side insert racing against RLS
+ * when email confirmation is enabled and no session exists yet right
+ * after signUp().
+ *
+ * role: 'partner' must be sent explicitly -- this project's Supabase
+ * instance is shared with the JustPlay Consumer app, whose signups use
+ * the same trigger and default to role: 'customer' when unspecified.
  */
 export async function signUpPartner(input: SignUpInput) {
   const { data, error } = await supabase.auth.signUp({
@@ -28,6 +33,7 @@ export async function signUpPartner(input: SignUpInput) {
     password: input.password,
     options: {
       data: {
+        role: 'partner',
         full_name: input.fullName,
         organisation_name: input.organisationName,
         phone: input.phone,

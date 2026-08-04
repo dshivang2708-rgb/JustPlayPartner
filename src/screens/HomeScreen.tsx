@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { ScreenScaffold } from '../components/ScreenScaffold';
 import { ChipRow } from '../components/ChipRow';
 import { VenueCard } from '../components/VenueCard';
@@ -19,6 +20,7 @@ const EVENT_FILTERS: { key: EventStatus | 'all'; label: string }[] = [
 ];
 
 export function HomeScreen() {
+  const navigation = useNavigation<any>();
   const [eventFilter, setEventFilter] = useState<EventStatus | 'all'>('all');
 
   const [venues, setVenues] = useState<VenueRecord[]>([]);
@@ -95,6 +97,7 @@ export function HomeScreen() {
                   courtCount: v.courtCount,
                   status: v.isActive ? 'active' : 'inactive',
                 }}
+                onPress={() => navigation.navigate('VenueDetail', { venueId: v.id })}
               />
             ))}
           </ScrollView>

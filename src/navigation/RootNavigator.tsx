@@ -4,7 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import { color, font } from '../theme/tokens';
 import { DashboardScreen } from '../screens/DashboardScreen';
-import { HomeScreen } from '../screens/HomeScreen';
+import { HomeStackNavigator } from './HomeStackNavigator';
 import { BookingsScreen } from '../screens/BookingsScreen';
 import { PaymentsScreen } from '../screens/PaymentsScreen';
 import { MoreStackNavigator } from './MoreStackNavigator';
@@ -40,7 +40,7 @@ export function RootNavigator() {
         tabBarIcon: () => <Text style={{ fontSize: 20 }}>{TAB_ICONS[route.name]}</Text>,
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Home" component={HomeStackNavigator} />
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Bookings" component={BookingsScreen} />
       <Tab.Screen name="Payments" component={PaymentsScreen} />

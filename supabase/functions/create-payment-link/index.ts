@@ -25,9 +25,16 @@ const RAZORPAY_KEY_SECRET = Deno.env.get('RAZORPAY_KEY_SECRET')!;
 // this is a reasonable MVP default, not tax advice.
 const GST_RATE_PERCENT = Number(Deno.env.get('GST_RATE_PERCENT') ?? '18');
 
-const SUPABASE_URL = Deno.env.get('https://guhfzzykoepmeqekbyxj.supabase.co')!;
-const SUPABASE_ANON_KEY = Deno.env.get('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1aGZ6enlrb2VwbWVxZWtieXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NzE0MDksImV4cCI6MjEwMDQ0NzQwOX0.3htwz74u8WQBq8KTnG0czUj_8KpvRW_rQMpzadec3uM')!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1aGZ6enlrb2VwbWVxZWtieXhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NDg3MTQwOSwiZXhwIjoyMTAwNDQ3NDA5fQ.3auv-ZNzWjTxuPquEfeqfL6ZXFMzcfUJzOiLfwG7v54')!;
+// SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY are
+// auto-injected into every Supabase Edge Function's environment already --
+// never hardcode the actual URL/keys here. (This line was previously
+// passing the literal secret values as the *variable name* argument to
+// Deno.env.get(), which both broke the function and leaked the keys into
+// the repo. If those keys were ever pushed anywhere, rotate them in
+// Supabase Dashboard -> Project Settings -> API immediately.)
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 type RequestBody = {
   venueId: string;
@@ -35,6 +42,7 @@ type RequestBody = {
   customerName: string;
   customerPhone: string;
   description?: string;
+  bookingId?: string; // set by the consumer app when paying for a specific booking
 };
 
 Deno.serve(async (req) => {
@@ -49,7 +57,7 @@ Deno.serve(async (req) => {
     }
 
     const body: RequestBody = await req.json();
-    const { venueId, amountInRupees, customerName, customerPhone } = body;
+    const { venueId, amountInRupees, customerName, customerPhone, bookingId } = body;
     const description = body.description?.trim() || `Booking payment — ${customerName?.trim() || 'Guest'}`;
 
     if (!venueId) return jsonResponse({ message: 'venueId is required.' }, 400);
@@ -73,9 +81,17 @@ Deno.serve(async (req) => {
     } = await supabaseUser.auth.getUser();
     if (userError || !user) return jsonResponse({ message: 'Invalid or expired session.' }, 401);
 
-    const authorized = await isAuthorizedForVenue(supabaseUser, venueId, user.id);
+    // Two valid callers:
+    //  1. Partner app: the venue's owner/staff, creating a manual payment
+    //     link for a walk-in/phone booking (no bookingId).
+    //  2. Consumer app: the customer who owns the booking they're paying
+    //     for (bookingId supplied, and it must be their own booking).
+    const authorized = bookingId
+      ? await isAuthorizedForBooking(supabaseUser, bookingId, venueId, user.id)
+      : await isAuthorizedForVenue(supabaseUser, venueId, user.id);
+
     if (!authorized) {
-      return jsonResponse({ message: "You don't have permission to create payment links for this venue." }, 403);
+      return jsonResponse({ message: "You don't have permission to create a payment link for this." }, 403);
     }
 
     // Admin client, service-role key -- bypasses RLS. Used ONLY for the
@@ -103,7 +119,7 @@ Deno.serve(async (req) => {
         },
         notify: { sms: true, email: false },
         reminder_enable: true,
-        notes: { venue_id: venueId, created_by: user.id },
+        notes: { venue_id: venueId, created_by: user.id, booking_id: bookingId ?? '' },
       }),
     });
 
@@ -120,6 +136,7 @@ Deno.serve(async (req) => {
       .from('payments')
       .insert({
         venue_id: venueId,
+        booking_id: bookingId ?? null,
         amount: amountInRupees,
         base_amount: baseAmount,
         gst_amount: gstAmount,
@@ -155,6 +172,26 @@ Deno.serve(async (req) => {
     return jsonResponse({ message: 'Unexpected server error.' }, 500);
   }
 });
+
+async function isAuthorizedForBooking(
+  supabaseUser: ReturnType<typeof createClient>,
+  bookingId: string,
+  venueId: string,
+  userId: string
+): Promise<boolean> {
+  // "Customers can view their own bookings" RLS policy means this only
+  // returns a row if the booking both exists AND belongs to this caller --
+  // it can't be used to probe other people's bookings.
+  const { data: booking } = await supabaseUser
+    .from('bookings')
+    .select('id, customer_id, court_id, courts!inner(venue_id)')
+    .eq('id', bookingId)
+    .eq('customer_id', userId)
+    .maybeSingle();
+
+  if (!booking) return false;
+  return (booking as any).courts?.venue_id === venueId;
+}
 
 async function isAuthorizedForVenue(
   supabaseUser: ReturnType<typeof createClient>,
